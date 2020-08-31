@@ -1,0 +1,342 @@
+
+
+read in our data
+
+```{r}
+library(glmnet)
+library(tidyverse)
+library(ggplot2)
+train = read.csv("train_Madison.csv")
+```
+
+convert  word counts to numeric percentage and conver star data to numeric
+
+```{r}
+#convert stars to number
+train[ , 2] = suppressWarnings(as.numeric(as.character(train[ , 2])))
+##convert all numbers to percenatges
+for (i in 7:length(train)) {
+  train[ , i] = suppressWarnings(as.numeric(as.character(train[ , i])))
+}
+for (i in 9:length(train)) {
+  train[ , i] = suppressWarnings(train[ , i] / train[ , 8])
+}
+```
+
+remove any NA's in the training data set. Add an indicator for Madison.
+
+```{r}
+train = train[(!is.na(train[ , i])), ]
+train$Madison = c()
+## add a column to contain our binomial madison or not variable.
+for (i in 1:(nrow(train))) {
+  if (train$city[i] == "Madison") {
+    train$Madison[i]= 1
+  } else {
+    train$Madison[i] = 0
+  }
+}
+```
+
+Here we look at the the correlation for all words with star values and see how many are positive and negative. 
+
+```{r}
+positiveCorr.ID = c()
+negativeCorr.ID = c()
+##run a for loop to look at the postivie and negative correlations
+for (i in 7:length(train)) {
+  if (cor(train[ , 2],train[ , i]) > 0) {
+    positiveCorr.ID = c(positiveCorr.ID, i)
+  } else {
+    negativeCorr.ID = c(negativeCorr.ID, i)
+  }
+}
+
+##check number in each group
+length(negativeCorr.ID)
+length(positiveCorr.ID)
+```
+
+Here we can look at the absolute values of the correlation between each word and the star rating.
+There are very clearly a large number of words that have very little correlation: 105 words have less then .02 correlation.
+Slightly more words, 145, have comparitively high correlations above .05. The remaining 252 words comprimise the middle of the chart and land somewhere between .02 and .05. The bowed nature of our graph suggests that this data has been previously manipulated or sorted
+
+```{r}
+corrValues=c()
+for (i in 7:length(train)) {
+ corrValues=c(corrValues,cor(train[ , 2],train[ , i]))
+}
+
+absCorrValues=abs(corrValues)
+LowCorr<-which(absCorrValues<.02)
+highCorr<-which(absCorrValues>=.05)
+
+print("number of high correalted words")
+length(highCorr)
+print("number of low correalted words")
+length(LowCorr)
+print("number of medium correalted words")
+length(absCorrValues)-(length(LowCorr)+length(highCorr))
+plot(absCorrValues,main="Distribution, of Correlation between Stars and Word Frequency",ylab=("Absolute Correlation Value"))
+points(3,.00215,col="blue",cex=2,pch=16)
+points(1,0.1532005,col="red",cex=2,pch=16)
+text(28,0.1632005,"gem")
+text(3,.02215,"die")
+```
+
+Here we will check our top 5 smallest and largest correlation to sanity check our results. We hope to see results that confirm our intutions. If Garbage is highly correlated with 5 stars, we will need to check our results but if gem is higly correlated with 5 stars, we will gain confidence.
+
+```{r}
+#here we willcomment out the order command to keep the output clean and fresh. But if you were running it for real, you should uncomment the order command to find the correct indices to use. 
+negativehigh.ID = c(486, 408, 487, 492, 320, 508)
+negativehigh.name = colnames(train[ , negativehigh.ID])
+negativehigh.cor = c()
+for (i in 1:6) {
+  cor.i = cor(train[ , 2], train[ , negativehigh.ID[i]], use = "complete.obs")
+  negativehigh.cor[i] = cor.i
+}
+df.negative = data.frame(Variable = negativehigh.name, Correlation = negativehigh.cor)
+##positively correlated Id numbers into a vector
+positivehigh.ID = c(24, 49, 20, 14, 36, 35)
+positivehigh.name = colnames(train[ , positivehigh.ID])
+positivehigh.cor = c()
+for (i in 1:6) {
+  cor.i = cor(train[ , 2], train[ , positivehigh.ID[i]], use = "complete.obs")
+  positivehigh.cor[i] = cor.i
+}
+df.positive = data.frame(Variable = positivehigh.name, Correlation = positivehigh.cor)
+
+##order(corrValues)
+print("here are our most negatively correlated words and their correlation")
+print(df.negative)
+#here we willcomment out the order command to keep the output clean and fresh. But if you were running it for real, you should uncomment the order command to find the correct indices to use. 
+##order(corrValues,decreasing=TRUE)
+print("here are our most postively correlated words and their correlation")
+print(df.positive)
+```
+
+We tried to construct MLR models based on the variables with highest correlation and combination of mediocre variables.
+
+```{r}
+# sort the correlation of the positive variables
+positiveCorr.cor = c()
+for (i in positiveCorr.ID) {
+  cor.i = cor(train[ , 2], train[ , i], use = "complete.obs")
+  positiveCorr.cor[i] = cor.i
+}
+positiveCorr.order = order(positiveCorr.cor, decreasing = TRUE)
+
+# sort the correlation of the negative variables
+negativeCorr.cor = c()
+for (i in negativeCorr.ID) {
+  cor.i = cor(train[ , 2], train[ , i], use = "complete.obs")
+  negativeCorr.cor[i] = cor.i
+}
+negativeCorr.order = order(negativeCorr.cor, decreasing = TRUE)
+
+# combined the 100 variables after 5 in each group
+
+positivemedium.ID = positiveCorr.order[6:105]
+train$p.medium.combined = rowSums(train[ , positivemedium.ID])
+negativemedium.ID = negativeCorr.order[6:105]
+train$n.medium.combined = rowSums(train[ , negativemedium.ID])
+
+# construct a new model with the combined numbers
+lm.c.m = lm(train[ , 2] ~ train[ , 24] + train[ , 49] + train[ , 20] + train[ , 14] + train[ , 36] + 
+                          train[ , 486] + train[ , 408] + train[ , 487] + train[ , 492] + train[ , 320] +                                train[ , 510] + train[ , 511])
+summary(lm.c.m)
+```
+
+The MLR model we constructed have a very low r squared and cannot beat the brenchmark in Kaggle. Thus we choose to use Lasso.
+
+Please note. Here we comment out the code to load in our model and instead rerun the code to create the model. The results may not perfectly match the results described in the paper and rcode as that was written with a particular, saved lasso model. This code will create a new model. 
+
+```{r}
+
+# Removes factors
+x = as.matrix(train[,c(-2,-3,-4,-5,-6,-1, -510, -511)]) 
+# single out star
+y = as.integer(train[, 2]) 
+# construct the Lasso model
+ cv.lasso = cv.glmnet(x, y, family='gaussian', alpha=1, parallel=TRUE, standardize=TRUE, type.measure='mse')
+#load("cv.lasso.rda")
+
+ #add two plots about cv.lasso
+ plot(cv.lasso)
+plot(cv.lasso$glmnet.fit,xvar="lambda",label=TRUE)
+#find and add text names
+colnames( x)[27] 
+colnames( x)[502] 
+colnames( x)[11]
+text(-4,-55,"Worst") 
+text(-5.5,27,"Glad")
+text(-3,24,"Perfect") 
+
+```
+```{r}
+## count number of coefficents set equal to 0 for both models. 
+plot(cv.lasso$glmnet.fit,xvar="dev",label=FALSE)
+abline(abline(v = .476))
+text(.38,-42,"Maximum Deviance Explained")
+text(.40,-50,"491 Variables, 46.2%")
+text(.46,-54,"->")
+
+```
+
+First we print out the mse for the absolute min mse. Then we print out the lambda for the 1 SE adjustment the authors suggest. So moving 1 SE increase our mse by about .044. Next we square root them to derive RMSE
+
+```{r}
+##find lamda with min mse and pull its mse out
+min=which(cv.lasso$lambda==cv.lasso$lambda.min)
+mse.min<-cv.lasso$cvm[min]
+##MSE and RMSE and adj R^2
+print("MSE AND RMSE")
+mse.min
+sqrt(mse.min)
+#calculate r2
+Min.rsq = 1 - cv.lasso$cvm[min]/var(y)
+print("R^2")
+Min.rsq
+
+##find lamda within 1 SE of the min MSE and pull its MSE out
+onese=which(cv.lasso$lambda==cv.lasso$lambda.1se)
+mse.onese<-cv.lasso$cvm[onese]
+##MSE and RMSE and adj R^2
+print("MSE AND RMSE")
+mse.onese
+sqrt(mse.onese)
+#calculate r2
+One.Se.rsq = 1 - cv.lasso$cvm[onese]/var(y)
+print("R^2")
+One.Se.rsq
+```
+
+Next we print out the coefficents for each of the two lambdas. This shows only the head but more can be shown if head is removed. 
+
+```{r}
+##create a data type to hold coefficents for each lamda type
+CoefForMIN=as.matrix(coef(cv.lasso, cv.lasso$lambda.min))
+CoefFor1SE=as.matrix(coef(cv.lasso, cv.lasso$lambda.1se))
+##print out coefficent tables
+print("Coefficients of the MIN model")
+head(CoefForMIN)
+print("Coefficients of the 1SE model")
+head(CoefFor1SE)
+
+
+```
+
+Look at how many variables are set to 0 for each lambda value.
+
+```{r}
+## count number of coefficents set equal to 0 for both models. 
+removedMIN=which(CoefForMIN==0)
+removed1se=which(CoefFor1SE==0)
+print("number of removed variables in Min MSE model")
+length(removedMIN)
+print("number of removed variables in 1 SE model")
+length(removed1se)
+```
+next we will save our model to preserve it. 
+```{r}
+#save model
+ save(cv.lasso, file = "cv.lasso.rda")
+```
+
+read in our test data, convert  word counts to numeric percentage and conver star data to numeric.
+remove any NA's in the training data set. create a new binary variable called Madison. This will replace the current Madison column that denotes the frequency of madison in text. This new varaible will be a 1 if a city is Madison and 0 otherwise.
+
+```{r}
+library(tidyverse)
+test <- read_csv("test_Madison.csv")
+#convert our numbers to percentages
+for (i in 8:507) {
+  test[ , i] = suppressWarnings(test[ , i] / test[ , 7])
+}
+```
+
+create a new binary variable called Madison. This will replace the current Madison column that denotes the frequency of madison in text. This new varaible will be a 1 if a city is Madison and 0 otherwise.
+
+```{r}
+#create a madison binomail varialbe in our test data
+test$Madison = c()
+for (i in 1:(nrow(test))) {
+  if (test$city[i] == "Madison") {
+    test$Madison[i]= 1
+  } else {
+    test$Madison[i] = 0
+  }
+}
+```
+
+Add an empty column to replace the deleted column, create a test matrix and then use our fitted model to predict y.
+
+```{r}
+#add colmn to repalce star column
+test = test[ , c(1, 508, 2:507)]
+
+#create our x matrix to plug into model 
+testMatrix = as.matrix(test[,c(-3,-4,-5,-6,-1)])
+prdictedY = predict(cv.lasso, testMatrix)
+q = prdictedY
+#turncate stars
+for (i in 1:(length(q))) {
+  if (q[i] > 5) {
+    q[i] = 5
+  } else if (q[i] < 1) {
+    q[i] = 1
+  }
+}
+YOUR_PREDICTIONS <- q
+##create kaggle submissions
+out_df <- tibble(
+  Id = test$Id,
+  Expected = YOUR_PREDICTIONS
+)
+```
+
+Draw the histogram, residual plot and QQ-plot of the model based on train dataset. As this is a task of prediction and we have a very large data set, we will not consider Cook??s distance, Pii and Leverage-Influence plots.R also currently lacks the capabilities to create these models.
+
+```{r}
+p = predict(cv.lasso, x)
+for (i in 1:(length(p))) {
+  if (p[i] > 5) {
+    p[i] = 5
+  } else if (p[i] < 1) {
+    p[i] = 1
+  }
+}
+##create grrpahs and look at predictions.
+star = train$star
+residual = p - star
+summary(p)
+summary(star)
+hist(p, xlab = "Predicted value", main = "Predicted values")
+hist(star, xlab = "Star", main = "Stars")
+print("The star histogram shows that our projected stars is centered at 4.3 but our actual data set is centered at
+      4.3. This is likely due to the model making predictions to minimize MSE.")
+
+
+df.resid = tibble(residual = residual, star = star)
+plot(df.resid$star,df.resid$residual, 
+     xlab="Star",
+     ylab="Residuals",
+     main="Residual Plot with Star on X axis",pch=23,bg="red",cex=1.2)
+abline(a=0,b=0,col="black",lwd=3)
+qqnorm(star, main = "Normal Q-Q Plot for the Stars")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
